@@ -1,3 +1,5 @@
+# Pinned to cilium: this fixture exercises Cilium-only policy features.
+networkPolicyProvider: cilium
 services:
   default:
     image: "python:3.12-bookworm"

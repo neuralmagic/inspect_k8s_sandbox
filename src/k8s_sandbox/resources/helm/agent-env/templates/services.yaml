@@ -28,13 +28,21 @@ spec:
         aisi.gov.uk/network-{{ . }}: "true"
         {{- end }}
         {{- end }}
+        {{- if $service.networkIsolated }}
+        {{- /* Marks the Pod so the ovn broad allow policies skip it; the isolate
+               NetworkPolicy then denies all ingress/egress. Harmless for cilium. */}}
+        aisi.gov.uk/network-isolated: "true"
+        {{- end }}
         inspect/service: {{ $name }}
       annotations:
         {{- toYaml $.Values.annotations | nindent 8 }}
     spec:
-      {{- /* "CLUSTER_DEFAULT" (magic string) prevents runtimeClassName being set. */}}
+      {{- /* "CLUSTER_DEFAULT" (magic string) prevents runtimeClassName being set. The
+             fallback default depends on the network policy provider: cri-o/OpenShift
+             clusters (ovn) have no gvisor RuntimeClass, so default to crun there. */}}
+      {{- $defaultRuntime := ternary "crun" "gvisor" (eq $.Values.networkPolicyProvider "ovn") }}
       {{- if ne $service.runtimeClassName "CLUSTER_DEFAULT" }}
-      runtimeClassName: {{ $service.runtimeClassName | default "gvisor" }}
+      runtimeClassName: {{ $service.runtimeClassName | default $defaultRuntime }}
       {{- end }}
       automountServiceAccountToken: {{ $.Values.automountServiceAccountToken }}
       {{- if $.Values.serviceAccountName }}

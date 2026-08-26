@@ -17,6 +17,11 @@
         }
       }
     },
+    "networkPolicyProvider": {
+      "type": "string",
+      "enum": ["cilium", "ovn"],
+      "description": "Which network policy engine to render: 'cilium' (CiliumNetworkPolicy) or 'ovn' (plain networking.k8s.io/v1 NetworkPolicy for clusters without Cilium)."
+    },
     "allowDomains": {
       "type": "array",
       "items": {
@@ -110,7 +115,7 @@
               }
             },
             "runtimeClassName": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "image": {
               "type": "string"

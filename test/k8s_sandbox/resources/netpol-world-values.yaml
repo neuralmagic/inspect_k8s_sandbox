@@ -1,3 +1,5 @@
+# Pinned to cilium: this integration test exercises Cilium-only DNS/FQDN egress.
+networkPolicyProvider: cilium
 services:
   default:
     resources:

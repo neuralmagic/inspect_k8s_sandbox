@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **BREAKING CHANGE**: Add `networkPolicyProvider: cilium|ovn` to the built-in chart,
+  now defaulting to `ovn` (plain `networking.k8s.io/v1 NetworkPolicy`) for clusters
+  without Cilium such as OVN-Kubernetes / OpenShift. Set `networkPolicyProvider: cilium`
+  to keep the previous `CiliumNetworkPolicy` behaviour. On the `ovn` path
+  `runtimeClassName` defaults to `crun` (no gvisor RuntimeClass on cri-o), and network
+  guarantees are reduced: `allowDomains` opens broad egress on common web ports rather
+  than pinning to the listed domains, DNS lookups are not filtered, and per-port
+  services get no separate ICMP allowance. Prefer `allowCIDR` to restrict egress. See
+  `docs/security/network-access.md`.
 - **BREAKING CHANGE**: The CoreDNS sidecar now runs as UID/GID 65532 on a read-only root
   filesystem with only `NET_BIND_SERVICE`. A custom `corednsImage` must run under that
   context; set the new `corednsSecurityContext` if it cannot. The default image moves

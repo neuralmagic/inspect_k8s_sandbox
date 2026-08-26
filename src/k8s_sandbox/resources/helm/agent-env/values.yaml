@@ -4,6 +4,16 @@
 global:
   nameOverride: ""
   fullnameOverride: ""
+# -- Which network policy engine to render. `cilium` emits `CiliumNetworkPolicy`
+# resources and gives the full guarantees documented below (domain-pinned egress,
+# DNS-query filtering, TLS SNI / HTTP Host identity, ICMP rules). `ovn` emits plain
+# `networking.k8s.io/v1 NetworkPolicy` for clusters without Cilium (e.g.
+# OVN-Kubernetes / OpenShift). Plain NetworkPolicy is L3/L4 only: `allowDomains`
+# degrades to broad egress on common web ports (no domain restriction), DNS lookups
+# are not filtered, and per-port services do not get separate ICMP allowances. See
+# docs/security/network-access.md.
+# @default -- ovn
+networkPolicyProvider: ovn
 # --  Domains the agent environment may reach. Egress is restricted to ports
 # 80/443 and the request identity must match an entry (TLS SNI on 443, HTTP Host
 # on 80). Use allowDomainsPorts to open other ports. Wildcard entries require
@@ -72,9 +82,11 @@ services:
   # -- The default service, this is required for the agent environment to function.
   # @default -- see [values.yaml](./values.yaml)
   default:
-    # -- The container runtime e.g. gvisor or runc. The default is gvisor if not
-    # specified or set to `null`.
-    runtimeClassName: gvisor
+    # -- The container runtime e.g. gvisor or runc. When unset or `null`, the default
+    # depends on `networkPolicyProvider`: `gvisor` for `cilium`, and `crun` for `ovn`
+    # (OpenShift/cri-o clusters, where no gvisor RuntimeClass exists). Set to the magic
+    # string `CLUSTER_DEFAULT` to omit `runtimeClassName` and use the cluster default.
+    runtimeClassName: null
     # -- The container's image name.
     image: "python:3.12-bookworm"
     # -- The container's entrypoint command.

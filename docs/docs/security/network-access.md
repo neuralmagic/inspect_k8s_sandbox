@@ -19,10 +19,45 @@ domains that your containers can access. Use this with care.
     downloading packages from within your own infrastructure, or include
     critical packages preinstalled in the docker container running the eval.
 
+## Choosing a network policy provider
+
+The built-in Helm chart can render its network policies for two engines, selected with
+`networkPolicyProvider`:
+
+* `ovn` (default) — emits plain `networking.k8s.io/v1 NetworkPolicy` resources for
+  clusters **without** Cilium, such as
+  [OVN-Kubernetes](https://github.com/ovn-org/ovn-kubernetes) / OpenShift.
+* `cilium` — emits `CiliumNetworkPolicy` resources. Requires
+  [Cilium](https://cilium.io/) and gives the full guarantees described below.
+
+!!! warning "Reduced guarantees with `ovn`"
+
+    Plain Kubernetes `NetworkPolicy` is L3/L4 only and purely additive, so the `ovn`
+    provider **cannot** replicate several Cilium-only controls:
+
+    * **`allowDomains` is not domain-pinned.** With `ovn`, a non-empty `allowDomains`
+      opens broad egress to *all* IPs on the common web ports (80, 443, 8443, 8000,
+      5000) plus any `allowDomainsPorts`. This matches Cilium's `allowDomains: ["*"]`
+      behaviour only — traffic is **not** restricted to the listed domains, and there
+      is no TLS SNI / HTTP Host identity check. Prefer `allowCIDR` (rendered as an
+      `ipBlock`) when you need to restrict egress.
+    * **DNS lookups are not filtered.** The anti-exfiltration DNS allow-list is not
+      enforced; every query the sandbox makes is forwarded to cluster DNS.
+    * **No ICMP rules.** A service that restricts ingress to specific `ports` does not
+      get a separate ping (ICMP) allowance; services with no `ports` allow all
+      protocols, including ICMP.
+
+    On the `ovn` path, `runtimeClassName` also defaults to `crun` (rather than
+    `gvisor`), since OpenShift/cri-o clusters typically have no gvisor RuntimeClass.
+
+    Same-sandbox isolation, default-deny ingress, network-scoped ingress, `allowCIDR`,
+    `allowEntities: world`/`cluster`, and `network_mode: none` (isolated) services are
+    all still enforced.
+
 ## Cilium
 
-The built-in Helm chart uses [Cilium](https://cilium.io/) Network Policies to restrict
-network access.
+With `networkPolicyProvider: cilium`, the built-in Helm chart uses
+[Cilium](https://cilium.io/) Network Policies to restrict network access.
 
 Cilium has tooling to observe network requests, such as
 [Hubble](https://github.com/cilium/hubble). Though note from the

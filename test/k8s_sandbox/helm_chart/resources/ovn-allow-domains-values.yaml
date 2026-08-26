@@ -1,5 +1,4 @@
-# Pinned to cilium: this fixture exercises Cilium-only policy features.
-networkPolicyProvider: cilium
+networkPolicyProvider: ovn
 services:
   default:
     image: "python:3.12-bookworm"
@@ -8,5 +7,9 @@ allowDomains:
   - "*.debian.org"
 allowDomainsPorts:
   - port: 22
-  - port: 443
+  - port: 8080
     protocol: udp
+allowCIDR:
+  - "1.1.1.1/32"
+allowEntities:
+  - "world"

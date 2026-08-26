@@ -1,0 +1,225 @@
+{{- if eq .Values.networkPolicyProvider "ovn" }}
+{{- /*
+  Standard Kubernetes NetworkPolicy for CNIs without Cilium (e.g. OVN-Kubernetes /
+  OpenShift). Plain NetworkPolicy is L3/L4 only and PURELY ADDITIVE, so it cannot
+  express several controls the Cilium policy relies on:
+    - domain-pinned egress / DNS-query filtering (allowDomains degrades to broad
+      egress on common web ports; see the allowDomains block below),
+    - per-request identity (TLS SNI on 443, HTTP Host on 80),
+    - ICMP-specific rules (a port-restricted service therefore does not get a
+      separate ping allowance),
+    - deny rules -- network_mode:none services are instead EXCLUDED from the broad
+      allow policies (via the aisi.gov.uk/network-isolated label) and denied by
+      their own isolate policy.
+  See docs/security/network-access.md for the reduced guarantees.
+
+  Isolation between concurrent releases sharing a namespace is preserved because
+  every selector pins app.kubernetes.io/instance (the release name).
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ template "agentEnv.fullname" $ -}}-sandbox-egress
+  annotations:
+    {{- toYaml $.Values.annotations | nindent 4 }}
+  labels:
+    {{- toYaml $.Values.labels | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agentEnv.selectorLabels" $ | nindent 6 }}
+    matchExpressions:
+      - key: aisi.gov.uk/network-isolated
+        operator: DoesNotExist
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS (kube-dns / node-local-dns). Plain NetworkPolicy cannot filter
+    # which names are looked up, so every query the sandbox makes is forwarded.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchExpressions:
+              - key: k8s-app
+                operator: In
+                values:
+                  - kube-dns
+                  - node-local-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # All Pods in the same agent sandbox.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "agentEnv.selectorLabels" $ | nindent 14 }}
+    {{- with .Values.allowCIDR }}
+    # allowCIDR: all ports to the listed ranges.
+    - to:
+      {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    {{- $entities := .Values.allowEntities }}
+    {{- if or (has "all" $entities) (has "world" $entities) }}
+    # allowEntities includes all/world: unrestricted egress to every IP.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+    {{- else if or (has "cluster" $entities) (has "host" $entities) (has "remote-node" $entities) }}
+    # allowEntities includes cluster/host/remote-node: egress to all in-cluster Pods.
+    - to:
+        - namespaceSelector: {}
+    {{- end }}
+    {{- if .Values.allowDomains }}
+    {{- /* Plain NetworkPolicy cannot pin egress to domains or enforce request
+           identity, so allowDomains opens broad egress on the common web ports to
+           every IP. This matches Cilium's allowDomains:["*"] behaviour only -- the
+           per-domain restriction is NOT enforced. */}}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        {{- range $port := (list 80 443 8443 8000 5000) }}
+        - port: {{ $port }}
+          protocol: TCP
+        {{- end }}
+        {{- range $p := .Values.allowDomainsPorts }}
+        {{- $proto := $p.protocol | default "TCP" | upper }}
+        {{- if eq $proto "ANY" }}
+        - port: {{ $p.port }}
+          protocol: TCP
+        - port: {{ $p.port }}
+          protocol: UDP
+        {{- else }}
+        - port: {{ $p.port }}
+          protocol: {{ $proto }}
+        {{- end }}
+        {{- end }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ template "agentEnv.fullname" $ -}}-sandbox-default-deny-ingress
+  annotations:
+    {{- toYaml $.Values.annotations | nindent 4 }}
+  labels:
+    {{- toYaml $.Values.labels | nindent 4 }}
+spec:
+  # Default deny ingress. Per-service policies below add the specific allowances.
+  podSelector:
+    matchLabels:
+      {{- include "agentEnv.selectorLabels" $ | nindent 6 }}
+    matchExpressions:
+      - key: aisi.gov.uk/network-isolated
+        operator: DoesNotExist
+  policyTypes:
+    - Ingress
+{{- if .Values.networks }}
+  {{- range $svcName, $svc := .Values.services }}
+    {{- if and $svc.networks (not $svc.networkIsolated) }}
+      {{- range $net := $svc.networks }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ template "agentEnv.fullname" $ }}-svc-{{ $svcName }}-{{ $net }}-ingress
+  annotations:
+    {{- toYaml $.Values.annotations | nindent 4 }}
+  labels:
+    {{- toYaml $.Values.labels | nindent 4 }}
+spec:
+  # Allow ingress to workload "{{ $svcName }}" from same sandbox on network "{{ $net }}".
+  # If ports are specified, only those ports are exposed (ICMP ping is then not
+  # separately allowed); otherwise all ports and protocols (incl. ICMP) are allowed.
+  podSelector:
+    matchLabels:
+      {{- include "agentEnv.selectorLabels" $ | nindent 6 }}
+      inspect/service: {{ $svcName }}
+      aisi.gov.uk/network-{{ $net }}: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agentEnv.selectorLabels" $ | nindent 14 }}
+              aisi.gov.uk/network-{{ $net }}: "true"
+      {{- if $svc.ports }}
+      ports:
+        {{- range $svc.ports }}
+        - port: {{ .port }}
+          protocol: {{ .protocol | upper }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- else }}
+  {{- range $svcName, $svc := .Values.services }}
+    {{- if not $svc.networkIsolated }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ template "agentEnv.fullname" $ }}-svc-{{ $svcName }}-ingress
+  annotations:
+    {{- toYaml $.Values.annotations | nindent 4 }}
+  labels:
+    {{- toYaml $.Values.labels | nindent 4 }}
+spec:
+  # Allow ingress to workload "{{ $svcName }}" from same sandbox.
+  # If ports are specified, only those ports are exposed (ICMP ping is then not
+  # separately allowed); otherwise all ports and protocols (incl. ICMP) are allowed.
+  podSelector:
+    matchLabels:
+      {{- include "agentEnv.selectorLabels" $ | nindent 6 }}
+      inspect/service: {{ $svcName }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agentEnv.selectorLabels" $ | nindent 14 }}
+      {{- if $svc.ports }}
+      ports:
+        {{- range $svc.ports }}
+        - port: {{ .port }}
+          protocol: {{ .protocol | upper }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- range $svcName, $svc := .Values.services }}
+{{- if $svc.networkIsolated }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ template "agentEnv.fullname" $ }}-svc-{{ $svcName }}-isolate
+  annotations:
+    {{- toYaml $.Values.annotations | nindent 4 }}
+  labels:
+    {{- toYaml $.Values.labels | nindent 4 }}
+spec:
+  # Deny all ingress and egress for isolated service "{{ $svcName }}"
+  # (network_mode: none). The pod also carries aisi.gov.uk/network-isolated so the
+  # broad allow policies above skip it.
+  podSelector:
+    matchLabels:
+      {{- include "agentEnv.selectorLabels" $ | nindent 6 }}
+      inspect/service: {{ $svcName }}
+  policyTypes:
+    - Ingress
+    - Egress
+{{- end }}
+{{- end }}
+{{- end }}

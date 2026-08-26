@@ -19,6 +19,7 @@
 | global | object | set by inspect | The name of the agent environment, only overwrite in cases where e.g. name lengths are causing failures. |
 | imagePullSecrets | list | `[]` | References to pre-existing secrets that contain registry credentials. |
 | labels | object | `{}` | A dict of labels to apply to resources within the agent environment. |
+| networkPolicyProvider | string | ovn | Which network policy engine to render. `cilium` emits `CiliumNetworkPolicy` resources and gives the full guarantees documented below (domain-pinned egress, DNS-query filtering, TLS SNI / HTTP Host identity, ICMP rules). `ovn` emits plain `networking.k8s.io/v1 NetworkPolicy` for clusters without Cilium (e.g. OVN-Kubernetes / OpenShift). Plain NetworkPolicy is L3/L4 only: `allowDomains` degrades to broad egress on common web ports (no domain restriction), DNS lookups are not filtered, and per-port services do not get separate ICMP allowances. See docs/security/network-access.md. |
 | networks | object | `{}` | Defines network names that can be attached to services in order to specify subsets of services that can communicate with one another. Names must be lower case alphanumeric with `-` or `.`, and at most 55 characters. |
 | serviceAccountCreate | bool | `false` | Whether to create the selected ServiceAccount. Keep disabled to use an externally managed ServiceAccount across concurrent sandbox releases. |
 | serviceAccountName | string | `nil` | Service account name for sandbox pods. The account must already exist unless `serviceAccountCreate` is enabled. |
@@ -37,7 +38,7 @@
 | services.default.ports | list | `[]` | Deprecated. All ports of services with a DNS record are accessible (though not necessarily open) to other services within the agent environment. If one or more ports are provided, `dnsRecord` is automatically set to true. |
 | services.default.readinessProbe | object | `{}` | A probe which is used to determine when the container is ready to accept. traffic. |
 | services.default.resources | object | see [templates/services.yaml](./templates/services.yaml) | Resource requests and limits for the container. |
-| services.default.runtimeClassName | string | `"gvisor"` | The container runtime e.g. gvisor or runc. The default is gvisor if not specified or set to `null`. |
+| services.default.runtimeClassName | string | `nil` | The container runtime e.g. gvisor or runc. When unset or `null`, the default depends on `networkPolicyProvider`: `gvisor` for `cilium`, and `crun` for `ovn` (OpenShift/cri-o clusters, where no gvisor RuntimeClass exists). Set to the magic string `CLUSTER_DEFAULT` to omit `runtimeClassName` and use the cluster default. |
 | services.default.securityContext | object | `{}` | Privilege and access control settings for the container. |
 | services.default.tolerations | list | `[]` | Toleration settings for the Pod. |
 | services.default.volumeMounts | list | `[]` | Volume mounts that will be mounted in the container. Volumes defined in `volumes:` as colon-separated strings will automatically be mounted at their specified mount paths. |

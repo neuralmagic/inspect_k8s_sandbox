@@ -1,3 +1,4 @@
+{{- if eq .Values.networkPolicyProvider "cilium" }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -256,5 +257,6 @@ spec:
   egressDeny:
     - toEntities:
         - all
+{{- end }}
 {{- end }}
 {{- end }}

@@ -740,6 +740,150 @@ def test_service_args_render_as_a_list(
     assert container["command"] == ["/bin/sh", "-c"]
 
 
+def test_ovn_provider_renders_plain_network_policies(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
+
+    # The Cilium CRD must not be rendered on the OVN path.
+    assert _get_documents(documents, "CiliumNetworkPolicy") == []
+
+    policies = _get_documents(documents, "NetworkPolicy")
+    assert all(p["apiVersion"] == "networking.k8s.io/v1" for p in policies)
+
+    egress = next(
+        p for p in policies if p["metadata"]["name"].endswith("-sandbox-egress")
+    )
+    assert egress["spec"]["policyTypes"] == ["Egress"]
+
+    rules = egress["spec"]["egress"]
+    # Cluster DNS on port 53 (TCP + UDP).
+    dns_rule = next(
+        r for r in rules if any("kube-system" in str(peer) for peer in r.get("to", []))
+    )
+    assert {(p["port"], p["protocol"]) for p in dns_rule["ports"]} == {
+        (53, "UDP"),
+        (53, "TCP"),
+    }
+    # Same-sandbox egress (podSelector pinning the release instance).
+    assert any(
+        peer.get("podSelector", {})
+        .get("matchLabels", {})
+        .get("app.kubernetes.io/instance")
+        == "my-release"
+        for r in rules
+        for peer in r.get("to", [])
+    )
+
+    deny_ingress = next(
+        p
+        for p in policies
+        if p["metadata"]["name"].endswith("-sandbox-default-deny-ingress")
+    )
+    assert deny_ingress["spec"]["policyTypes"] == ["Ingress"]
+    # No ingress rules => deny all ingress.
+    assert "ingress" not in deny_ingress["spec"]
+
+
+def test_ovn_runtime_class_defaults_to_crun(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    assert pod_spec["runtimeClassName"] == "crun"
+
+
+def test_ovn_allow_domains_opens_broad_egress_without_identity(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(
+        chart_dir, test_resources_dir / "ovn-allow-domains-values.yaml"
+    )
+
+    egress = next(
+        p
+        for p in _get_documents(documents, "NetworkPolicy")
+        if p["metadata"]["name"].endswith("-sandbox-egress")
+    )["spec"]["egress"]
+
+    def to_all(rule: dict[str, Any]) -> bool:
+        return any(
+            peer.get("ipBlock", {}).get("cidr") == "0.0.0.0/0"
+            for peer in rule.get("to", [])
+        )
+
+    # allowDomains cannot be pinned: it opens the common web ports (plus any
+    # allowDomainsPorts) to every IP. No serverNames / http host identity exists.
+    domain_rule = next(r for r in egress if to_all(r) and "ports" in r)
+    assert {(p["port"], p["protocol"]) for p in domain_rule["ports"]} == {
+        (80, "TCP"),
+        (443, "TCP"),
+        (8443, "TCP"),
+        (8000, "TCP"),
+        (5000, "TCP"),
+        (22, "TCP"),
+        (8080, "UDP"),
+    }
+
+    # allowEntities: world -> unrestricted egress to all IPs (no ports).
+    assert any(to_all(r) and "ports" not in r for r in egress)
+    # allowCIDR -> ipBlock for the listed range.
+    assert any(
+        peer.get("ipBlock", {}).get("cidr") == "1.1.1.1/32"
+        for r in egress
+        for peer in r.get("to", [])
+    )
+
+
+def test_ovn_network_isolated_service(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(
+        chart_dir, test_resources_dir / "ovn-network-isolated-values.yaml"
+    )
+
+    policies = _get_documents(documents, "NetworkPolicy")
+
+    isolate = next(p for p in policies if p["metadata"]["name"].endswith("-isolate"))
+    assert (
+        isolate["metadata"]["name"]
+        == "agent-env-my-release-svc-isolated-service-isolate"
+    )
+    # Deny all: both directions selected, no allow rules.
+    assert isolate["spec"]["policyTypes"] == ["Ingress", "Egress"]
+    assert "ingress" not in isolate["spec"]
+    assert "egress" not in isolate["spec"]
+
+    # The isolated service gets no same-sandbox ingress policy; the normal one does.
+    assert not any(
+        p["metadata"]["name"].endswith("-svc-isolated-service-ingress")
+        for p in policies
+    )
+    assert any(
+        p["metadata"]["name"].endswith("-svc-normal-service-ingress") for p in policies
+    )
+
+    # The broad allow policies must exclude the isolated pod so nothing re-grants it
+    # access (plain NetworkPolicy is additive and cannot subtract).
+    egress = next(
+        p for p in policies if p["metadata"]["name"].endswith("-sandbox-egress")
+    )
+    assert {
+        "key": "aisi.gov.uk/network-isolated",
+        "operator": "DoesNotExist",
+    } in egress["spec"]["podSelector"]["matchExpressions"]
+
+    # The isolated pod carries the exclusion label.
+    isolated_ss = next(
+        ss
+        for ss in _get_documents(documents, "StatefulSet")
+        if ss["metadata"]["name"].endswith("-isolated-service")
+    )
+    labels = isolated_ss["spec"]["template"]["metadata"]["labels"]
+    assert labels["aisi.gov.uk/network-isolated"] == "true"
+
+
 def _run_helm_template(
     chart_dir: Path,
     values_file: Path | None = None,
