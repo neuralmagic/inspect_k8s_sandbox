@@ -175,8 +175,17 @@ spec:
         image: {{ quote $.Values.corednsImage }}
         command:
           {{- toYaml $.Values.corednsCommand | nindent 10 }}
+        {{- /* OpenShift's restricted-v2 SCC (often the only one the pod's ServiceAccount
+               may use) assigns a UID from the namespace's allocated range and rejects a
+               pinned runAsUser/runAsGroup (e.g. 65532) as out of range. On ovn, drop those
+               keys so the SCC injects an in-range non-root UID; the retained
+               NET_BIND_SERVICE capability still lets coredns bind :53. */}}
+        {{- $csc := deepCopy $.Values.corednsSecurityContext }}
+        {{- if eq $.Values.networkPolicyProvider "ovn" }}
+        {{-   $csc = omit $csc "runAsUser" "runAsGroup" }}
+        {{- end }}
         securityContext:
-          {{- toYaml $.Values.corednsSecurityContext | nindent 10 }}
+          {{- toYaml $csc | nindent 10 }}
         resources:
           requests:
             memory: "128Mi"

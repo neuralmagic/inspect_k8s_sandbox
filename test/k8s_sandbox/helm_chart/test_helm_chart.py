@@ -460,7 +460,10 @@ def test_coredns_container(
     expected_coredns_image: str,
     expected_coredns_command: list[str],
 ) -> None:
-    set_str_parts: list[str] = []
+    # Pinned to cilium: the ovn path deliberately drops the coredns runAsUser/runAsGroup
+    # so OpenShift's restricted-v2 SCC can assign an in-range UID (see the dedicated ovn
+    # coredns test). This asserts the hardened pinned-UID default preserved for cilium.
+    set_str_parts: list[str] = ["networkPolicyProvider=cilium"]
     if "image" in overrides:
         set_str_parts.append(f"corednsImage={overrides['image']}")
     if "command" in overrides:
@@ -508,8 +511,11 @@ def test_coredns_security_context_can_be_overridden(chart_dir: Path) -> None:
     # An image which cannot run under the hardened default needs an escape hatch other
     # than forking the chart. Overriding one field merges rather than replaces, so the
     # rest of the hardening survives.
+    # Pinned to cilium: on ovn runAsUser/runAsGroup are stripped for the SCC, so this
+    # UID-merge escape hatch is asserted against the cilium path.
     documents = _run_helm_template(
-        chart_dir, set_str="corednsSecurityContext.runAsUser=1000"
+        chart_dir,
+        set_str="networkPolicyProvider=cilium,corednsSecurityContext.runAsUser=1000",
     )
 
     stateful_sets = _get_documents(documents, "StatefulSet")
@@ -941,6 +947,42 @@ def test_cilium_does_not_apply_container_security_context(
             if c["name"] != "coredns"
         )
         assert "securityContext" not in container
+
+
+def test_ovn_coredns_omits_pinned_uid_for_scc(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    # OpenShift's restricted-v2 SCC rejects a pinned runAsUser outside the namespace's
+    # allocated range. On ovn the coredns UID/GID must be left for the SCC to assign,
+    # while the rest of the hardened context is retained.
+    documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    coredns = next(c for c in pod_spec["containers"] if c["name"] == "coredns")
+    sc = coredns["securityContext"]
+
+    assert "runAsUser" not in sc
+    assert "runAsGroup" not in sc
+    # The other restricted-compliant settings survive.
+    assert sc["runAsNonRoot"] is True
+    assert sc["readOnlyRootFilesystem"] is True
+    assert sc["allowPrivilegeEscalation"] is False
+    assert sc["capabilities"] == {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}
+    assert sc["seccompProfile"] == {"type": "RuntimeDefault"}
+
+
+def test_cilium_coredns_keeps_pinned_uid(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(
+        chart_dir, test_resources_dir / "network-isolated-values.yaml"
+    )
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    coredns = next(c for c in pod_spec["containers"] if c["name"] == "coredns")
+
+    assert coredns["securityContext"]["runAsUser"] == 65532
+    assert coredns["securityContext"]["runAsGroup"] == 65532
 
 
 def _run_helm_template(

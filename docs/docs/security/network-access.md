@@ -60,6 +60,14 @@ The built-in Helm chart can render its network policies for two engines, selecte
     (which `restricted` forbids), set `containerSecurityContext: {}` and relax the
     namespace's enforced PodSecurity level accordingly.
 
+    On OpenShift the pod is also validated against a SecurityContextConstraint (SCC). The
+    `ovn` path drops the coredns container's pinned `runAsUser`/`runAsGroup` (65532) so
+    the `restricted-v2` SCC can assign a UID from the namespace's allocated range — a
+    pinned out-of-range UID is rejected at admission and the Pod is never created, which
+    surfaces as a Helm `context deadline exceeded` timeout with no Pod ever appearing.
+    Workloads that must run as a fixed UID or as root need their ServiceAccount granted a
+    suitable SCC (e.g. `oc adm policy add-scc-to-user anyuid -z <sa> -n <namespace>`).
+
     Same-sandbox isolation, default-deny ingress, network-scoped ingress, `allowCIDR`,
     `allowEntities: world`/`cluster`, and `network_mode: none` (isolated) services are
     all still enforced.

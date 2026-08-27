@@ -15,8 +15,11 @@
   `containerSecurityContext` (non-root, no privilege escalation, all capabilities
   dropped, `RuntimeDefault` seccomp) so Pods satisfy the PodSecurity `restricted` profile
   enforced by OpenShift-style clusters; a per-service `securityContext` is merged over it.
-  To run containers as root, set `containerSecurityContext: {}`. See
-  `docs/security/network-access.md`.
+  To run containers as root, set `containerSecurityContext: {}`. On `ovn` the coredns
+  container's pinned `runAsUser`/`runAsGroup` (65532) are also dropped so OpenShift's
+  `restricted-v2` SCC can assign an in-range UID; otherwise the Pod is rejected at
+  admission and never created, surfacing as a Helm `context deadline exceeded` timeout.
+  See `docs/security/network-access.md`.
 - **BREAKING CHANGE**: The CoreDNS sidecar now runs as UID/GID 65532 on a read-only root
   filesystem with only `NET_BIND_SERVICE`. A custom `corednsImage` must run under that
   context; set the new `corednsSecurityContext` if it cannot. The default image moves

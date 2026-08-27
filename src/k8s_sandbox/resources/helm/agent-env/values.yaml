@@ -57,7 +57,10 @@ corednsCommand:
   - -conf
   - /etc/coredns/Corefile
 # -- Security context for the coredns container. Override only if a custom
-# `corednsImage` cannot run under the hardened default.
+# `corednsImage` cannot run under the hardened default. On the `ovn` path the
+# `runAsUser`/`runAsGroup` (65532) are dropped so OpenShift's `restricted-v2` SCC can
+# assign a UID from the namespace's allocated range (a pinned out-of-range UID is
+# rejected at admission); the remaining hardening, including `NET_BIND_SERVICE`, is kept.
 # @default -- Non-root 65532, read-only root filesystem, RuntimeDefault seccomp, no privilege escalation, and no capability other than `NET_BIND_SERVICE`
 corednsSecurityContext:
   allowPrivilegeEscalation: false
