@@ -157,7 +157,17 @@ spec:
           - name: resolv-conf
             mountPath: /etc/resolv.conf
             subPath: resolv.conf
-        {{- with $service.securityContext }}
+        {{- /* On ovn, start from containerSecurityContext (restricted-compliant) and let
+               a per-service securityContext override it (service wins for any field it
+               sets). On cilium, only the per-service value is used, preserving previous
+               behaviour. mergeOverwrite treats false/0 as empty (mergo semantics), so a
+               service cannot flip runAsNonRoot to false this way; to run containers as
+               root, set the top-level containerSecurityContext to {}. */}}
+        {{- $sc := $service.securityContext | default dict }}
+        {{- if eq $.Values.networkPolicyProvider "ovn" }}
+        {{-   $sc = mergeOverwrite (deepCopy ($.Values.containerSecurityContext | default dict)) $sc }}
+        {{- end }}
+        {{- with $sc }}
         securityContext:
           {{- toYaml . | nindent 10 }}
         {{- end }}

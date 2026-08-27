@@ -52,6 +52,14 @@ The built-in Helm chart can render its network policies for two engines, selecte
     typically has no gvisor RuntimeClass — is used. Pinning a non-existent RuntimeClass
     otherwise leaves Pods `Pending` until the Helm install times out.
 
+    Each service's main container is also given a restricted-compliant
+    `containerSecurityContext` (non-root, no privilege escalation, all capabilities
+    dropped, `RuntimeDefault` seccomp) so Pods satisfy the PodSecurity `restricted`
+    profile that OpenShift-style clusters enforce. A per-service `securityContext` is
+    merged over this default and wins for any field it sets. To run containers as root
+    (which `restricted` forbids), set `containerSecurityContext: {}` and relax the
+    namespace's enforced PodSecurity level accordingly.
+
     Same-sandbox isolation, default-deny ingress, network-scoped ingress, `allowCIDR`,
     `allowEntities: world`/`cluster`, and `network_mode: none` (isolated) services are
     all still enforced.

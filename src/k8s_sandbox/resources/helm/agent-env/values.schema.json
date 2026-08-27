@@ -80,6 +80,9 @@
     "corednsSecurityContext": {
       "type": "object"
     },
+    "containerSecurityContext": {
+      "type": "object"
+    },
     "imagePullSecrets": {
       "type": "array",
       "items": {

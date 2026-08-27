@@ -10,7 +10,12 @@
   used rather than the non-existent gvisor RuntimeClass, and network
   guarantees are reduced: `allowDomains` opens broad egress on common web ports rather
   than pinning to the listed domains, DNS lookups are not filtered, and per-port
-  services get no separate ICMP allowance. Prefer `allowCIDR` to restrict egress. See
+  services get no separate ICMP allowance. Prefer `allowCIDR` to restrict egress. On the
+  `ovn` path each service's main container also gets a restricted-compliant
+  `containerSecurityContext` (non-root, no privilege escalation, all capabilities
+  dropped, `RuntimeDefault` seccomp) so Pods satisfy the PodSecurity `restricted` profile
+  enforced by OpenShift-style clusters; a per-service `securityContext` is merged over it.
+  To run containers as root, set `containerSecurityContext: {}`. See
   `docs/security/network-access.md`.
 - **BREAKING CHANGE**: The CoreDNS sidecar now runs as UID/GID 65532 on a read-only root
   filesystem with only `NET_BIND_SERVICE`. A custom `corednsImage` must run under that

@@ -1,0 +1,11 @@
+networkPolicyProvider: ovn
+services:
+  default:
+    image: "python:3.12-bookworm"
+    # A per-service securityContext is merged over the restricted-compliant default and
+    # wins for any field it sets, while the defaults it omits are retained.
+    securityContext:
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+        add: ["NET_BIND_SERVICE"]

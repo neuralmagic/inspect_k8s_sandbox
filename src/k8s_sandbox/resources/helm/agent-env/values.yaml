@@ -75,6 +75,19 @@ corednsSecurityContext:
   runAsUser: 65532
   seccompProfile:
     type: RuntimeDefault
+# -- Default securityContext applied to each service's main container when
+# `networkPolicyProvider` is `ovn`, so Pods satisfy the PodSecurity `restricted`
+# profile enforced by OpenShift-style clusters. A per-service `securityContext` is
+# merged over this and wins on conflict. Not applied for `cilium`. Set to `{}` to
+# disable (e.g. for images that must run as root, which `restricted` forbids).
+# @default -- restricted-compliant: non-root, no privilege escalation, all capabilities dropped, RuntimeDefault seccomp
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
 # -- A collection of services to deploy within the agent environment. A service can
 # connect to another service using DNS, e.g. `http://nginx:80`.
 # @default -- see [values.yaml](./values.yaml)

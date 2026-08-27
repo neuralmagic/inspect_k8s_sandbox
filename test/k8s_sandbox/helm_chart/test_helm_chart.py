@@ -887,6 +887,62 @@ def test_ovn_network_isolated_service(
     assert labels["aisi.gov.uk/network-isolated"] == "true"
 
 
+def test_ovn_applies_restricted_container_security_context(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    # OpenShift-style clusters enforce the PodSecurity `restricted` profile. The ovn
+    # path defaults the main container's securityContext so Pods are admitted.
+    documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    container = next(c for c in pod_spec["containers"] if c["name"] == "default")
+
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "runAsNonRoot": True,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+
+
+def test_ovn_per_service_security_context_overrides_default(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    documents = _run_helm_template(
+        chart_dir, test_resources_dir / "ovn-security-context-values.yaml"
+    )
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    container = next(c for c in pod_spec["containers"] if c["name"] == "default")
+    sc = container["securityContext"]
+
+    # Service values win on conflict...
+    assert sc["readOnlyRootFilesystem"] is True
+    assert sc["capabilities"] == {"drop": ["ALL"], "add": ["NET_BIND_SERVICE"]}
+    # ...while the restricted-compliant defaults it did not set are still merged in.
+    assert sc["allowPrivilegeEscalation"] is False
+    assert sc["runAsNonRoot"] is True
+    assert sc["seccompProfile"] == {"type": "RuntimeDefault"}
+
+
+def test_cilium_does_not_apply_container_security_context(
+    chart_dir: Path, test_resources_dir: Path
+) -> None:
+    # The restricted-compliant default is ovn-only; cilium keeps the previous behaviour
+    # of leaving the container securityContext unset unless a service specifies one.
+    documents = _run_helm_template(
+        chart_dir, test_resources_dir / "network-isolated-values.yaml"
+    )
+
+    for ss in _get_documents(documents, "StatefulSet"):
+        container = next(
+            c
+            for c in ss["spec"]["template"]["spec"]["containers"]
+            if c["name"] != "coredns"
+        )
+        assert "securityContext" not in container
+
+
 def _run_helm_template(
     chart_dir: Path,
     values_file: Path | None = None,
