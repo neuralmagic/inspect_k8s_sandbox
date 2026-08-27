@@ -38,7 +38,7 @@
 | services.default.ports | list | `[]` | Deprecated. All ports of services with a DNS record are accessible (though not necessarily open) to other services within the agent environment. If one or more ports are provided, `dnsRecord` is automatically set to true. |
 | services.default.readinessProbe | object | `{}` | A probe which is used to determine when the container is ready to accept. traffic. |
 | services.default.resources | object | see [templates/services.yaml](./templates/services.yaml) | Resource requests and limits for the container. |
-| services.default.runtimeClassName | string | `nil` | The container runtime e.g. gvisor or runc. When unset or `null`, the default depends on `networkPolicyProvider`: `gvisor` for `cilium`, and `crun` for `ovn` (OpenShift/cri-o clusters, where no gvisor RuntimeClass exists). Set to the magic string `CLUSTER_DEFAULT` to omit `runtimeClassName` and use the cluster default. |
+| services.default.runtimeClassName | string | `nil` | The container runtime e.g. gvisor or runc. When unset or `null`, the default depends on `networkPolicyProvider`: `gvisor` for `cilium`; for `ovn` `runtimeClassName` is omitted so the cluster default runtime (e.g. `crun` on cri-o/OpenShift, which has no gvisor RuntimeClass) is used. Set to the magic string `CLUSTER_DEFAULT` to force omission regardless of provider. |
 | services.default.securityContext | object | `{}` | Privilege and access control settings for the container. |
 | services.default.tolerations | list | `[]` | Toleration settings for the Pod. |
 | services.default.volumeMounts | list | `[]` | Volume mounts that will be mounted in the container. Volumes defined in `volumes:` as colon-separated strings will automatically be mounted at their specified mount paths. |

@@ -6,7 +6,8 @@
   now defaulting to `ovn` (plain `networking.k8s.io/v1 NetworkPolicy`) for clusters
   without Cilium such as OVN-Kubernetes / OpenShift. Set `networkPolicyProvider: cilium`
   to keep the previous `CiliumNetworkPolicy` behaviour. On the `ovn` path
-  `runtimeClassName` defaults to `crun` (no gvisor RuntimeClass on cri-o), and network
+  `runtimeClassName` is omitted so the cluster default runtime (e.g. `crun` on cri-o) is
+  used rather than the non-existent gvisor RuntimeClass, and network
   guarantees are reduced: `allowDomains` opens broad egress on common web ports rather
   than pinning to the listed domains, DNS lookups are not filtered, and per-port
   services get no separate ICMP allowance. Prefer `allowCIDR` to restrict egress. See

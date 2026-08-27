@@ -83,9 +83,10 @@ services:
   # @default -- see [values.yaml](./values.yaml)
   default:
     # -- The container runtime e.g. gvisor or runc. When unset or `null`, the default
-    # depends on `networkPolicyProvider`: `gvisor` for `cilium`, and `crun` for `ovn`
-    # (OpenShift/cri-o clusters, where no gvisor RuntimeClass exists). Set to the magic
-    # string `CLUSTER_DEFAULT` to omit `runtimeClassName` and use the cluster default.
+    # depends on `networkPolicyProvider`: `gvisor` for `cilium`; for `ovn`
+    # `runtimeClassName` is omitted so the cluster default runtime (e.g. `crun` on
+    # cri-o/OpenShift, which has no gvisor RuntimeClass) is used. Set to the magic string
+    # `CLUSTER_DEFAULT` to force omission regardless of provider.
     runtimeClassName: null
     # -- The container's image name.
     image: "python:3.12-bookworm"

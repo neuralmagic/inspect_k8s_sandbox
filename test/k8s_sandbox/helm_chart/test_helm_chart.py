@@ -785,13 +785,16 @@ def test_ovn_provider_renders_plain_network_policies(
     assert "ingress" not in deny_ingress["spec"]
 
 
-def test_ovn_runtime_class_defaults_to_crun(
+def test_ovn_omits_runtime_class_to_use_cluster_default(
     chart_dir: Path, test_resources_dir: Path
 ) -> None:
+    # ovn clusters (cri-o/OpenShift) have no gvisor RuntimeClass. Rather than pin a
+    # named "crun" RuntimeClass (which usually does not exist and leaves Pods Pending),
+    # runtimeClassName is omitted so the cluster default runtime (crun) is used.
     documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
 
     pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
-    assert pod_spec["runtimeClassName"] == "crun"
+    assert "runtimeClassName" not in pod_spec
 
 
 def test_ovn_allow_domains_opens_broad_egress_without_identity(

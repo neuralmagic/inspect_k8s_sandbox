@@ -47,8 +47,10 @@ The built-in Helm chart can render its network policies for two engines, selecte
       get a separate ping (ICMP) allowance; services with no `ports` allow all
       protocols, including ICMP.
 
-    On the `ovn` path, `runtimeClassName` also defaults to `crun` (rather than
-    `gvisor`), since OpenShift/cri-o clusters typically have no gvisor RuntimeClass.
+    On the `ovn` path, `runtimeClassName` is omitted (rather than defaulting to
+    `gvisor`), so the cluster default runtime — e.g. `crun` on OpenShift/cri-o, which
+    typically has no gvisor RuntimeClass — is used. Pinning a non-existent RuntimeClass
+    otherwise leaves Pods `Pending` until the Helm install times out.
 
     Same-sandbox isolation, default-deny ingress, network-scoped ingress, `allowCIDR`,
     `allowEntities: world`/`cluster`, and `network_mode: none` (isolated) services are

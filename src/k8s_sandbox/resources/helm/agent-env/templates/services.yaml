@@ -37,12 +37,17 @@ spec:
       annotations:
         {{- toYaml $.Values.annotations | nindent 8 }}
     spec:
-      {{- /* "CLUSTER_DEFAULT" (magic string) prevents runtimeClassName being set. The
-             fallback default depends on the network policy provider: cri-o/OpenShift
-             clusters (ovn) have no gvisor RuntimeClass, so default to crun there. */}}
-      {{- $defaultRuntime := ternary "crun" "gvisor" (eq $.Values.networkPolicyProvider "ovn") }}
-      {{- if ne $service.runtimeClassName "CLUSTER_DEFAULT" }}
-      runtimeClassName: {{ $service.runtimeClassName | default $defaultRuntime }}
+      {{- /* "CLUSTER_DEFAULT" (magic string) prevents runtimeClassName being set. When
+             unset: cilium defaults to gvisor; ovn omits runtimeClassName entirely so the
+             cluster default runtime (e.g. crun on cri-o/OpenShift) is used -- those
+             clusters have no gvisor RuntimeClass, and pinning a non-existent one leaves
+             Pods Pending until Helm times out. */}}
+      {{- $rc := $service.runtimeClassName }}
+      {{- if not $rc }}
+      {{-   $rc = ternary "CLUSTER_DEFAULT" "gvisor" (eq $.Values.networkPolicyProvider "ovn") }}
+      {{- end }}
+      {{- if ne $rc "CLUSTER_DEFAULT" }}
+      runtimeClassName: {{ $rc }}
       {{- end }}
       automountServiceAccountToken: {{ $.Values.automountServiceAccountToken }}
       {{- if $.Values.serviceAccountName }}
