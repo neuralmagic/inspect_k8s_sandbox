@@ -186,11 +186,15 @@ class ExecuteOperation(PodOperation):
                 f"The user parameter '{user}' provided to exec() does "
                 f"not appear to exist in the container. Docs: {EXEC_USER_URL}\n{stderr}"
             )
+        # A non-root container cannot use `runuser` to switch users. We intentionally
+        # do NOT raise here: callers probe with user="root" to detect whether user
+        # switching is available and rely on receiving an unsuccessful ExecResult to
+        # fall back to a rootless code path (e.g. Inspect's sandbox tool injection,
+        # which then skips the root-only `chmod 700` of the tools dir). This is the
+        # normal case on OpenShift, where the `restricted`/`restricted-v2` SCC forces
+        # the container to run as a non-root UID. See EXEC_USER_URL.
         if "runuser: may not be used by non-root users" in stderr.casefold():
-            raise RuntimeError(
-                f"When a user parameter ('{user}') is provided to exec(), the "
-                f"container must be running as root. Docs: {EXEC_USER_URL}\n{stderr}"
-            )
+            return
 
     def _filter_sentinel_and_returncode(self, frame: bytes) -> tuple[bytes, int | None]:
         # latin-1 maps each byte 1:1 to a codepoint, so it decodes arbitrary binary
