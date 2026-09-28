@@ -1,4 +1,5 @@
 import logging
+from typing import NoReturn
 
 from inspect_ai._util.error import PrerequisiteError  # TODO: Using private package.
 from inspect_ai.util import subprocess
@@ -31,7 +32,7 @@ async def _validate_helm() -> None:
         _raise(f"Found version {installed_version}.")
 
 
-def _raise(message: str) -> None:
+def _raise(message: str) -> NoReturn:
     raise PrerequisiteError(
         "K8s sandbox environments require helm (CLI) version >= "
         f"{MINIMUM_HELM_VERSION}. {message} "
@@ -40,7 +41,12 @@ def _raise(message: str) -> None:
 
 
 def _parse_version(version: str) -> Version:
-    # Typical output: "v3.15.3+g3bb50bb"
-    if version.startswith("v"):
-        return Version.parse(version[1:])
-    return Version.parse(version)
+    # Typical output: "v3.15.3+g3bb50bb\n". Strip before parsing: semver >= 3.1.0
+    # tightened its regex and rejects the trailing newline that helm always emits.
+    stripped = version.strip().removeprefix("v")
+    try:
+        return Version.parse(stripped)
+    except ValueError:
+        # Surface the raw output rather than a bare ValueError traceback; a future
+        # change to helm's version format should be diagnosable from the message.
+        _raise(f"Could not parse the version reported by helm: {version!r}.")
