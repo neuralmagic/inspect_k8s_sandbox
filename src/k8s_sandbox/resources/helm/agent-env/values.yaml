@@ -18,8 +18,20 @@ networkPolicyProvider: ovn
 # 80/443 and the request identity must match an entry (TLS SNI on 443, HTTP Host
 # on 80). Use allowDomainsPorts to open other ports. Wildcard entries require
 # Cilium >= 1.18.
-# @default -- Empty list (no internet access)
-allowDomains: []
+#
+# Defaults to `["*"]` (unrestricted) rather than upstream's `[]` (isolated):
+# benchmark images routinely install packages or clone repos at run time, and on
+# the `ovn` path those failures surface as opaque connection timeouts rather than
+# a policy error. Note this makes a task's own switch (e.g. swe-bench's
+# `allow_internet`) unable to turn egress back off, since an omitted
+# `allowDomains` falls through to this default -- set `allowDomains: []` in a
+# task's values file to isolate it again.
+#
+# On the `ovn` path `["*"]` and `["pypi.org"]` render identically (any IP on TCP
+# 80/443/8443/8000/5000); plain NetworkPolicy cannot pin egress to a domain. Use
+# `allowCIDR` where the destinations are known.
+# @default -- ["*"] (unrestricted egress on common web ports)
+allowDomains: ["*"]
 # - "pypi.org"
 # - "files.pythonhosted.org"
 # --  Extra ports opened to the domains in `allowDomains`, as a list of {port,
