@@ -34,8 +34,16 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # Cluster DNS (kube-dns / node-local-dns). Plain NetworkPolicy cannot filter
-    # which names are looked up, so every query the sandbox makes is forwarded.
+    # Cluster DNS. Plain NetworkPolicy cannot filter which names are looked up, so
+    # every query the sandbox makes is forwarded.
+    #
+    # Two peers because the DNS Pods are not in the same place on every cluster:
+    # upstream Kubernetes runs kube-dns/node-local-dns in kube-system, while
+    # OpenShift runs CoreDNS as the dns-default DaemonSet in openshift-dns. A peer
+    # matching nothing is silently inert, so listing both is safe; omitting the
+    # OpenShift one leaves the sandbox's CoreDNS sidecar unable to reach any
+    # upstream, and every lookup -- including *.svc.cluster.local -- fails with
+    # "Could not resolve host".
     - to:
         - namespaceSelector:
             matchLabels:
@@ -47,6 +55,12 @@ spec:
                 values:
                   - kube-dns
                   - node-local-dns
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+          podSelector:
+            matchLabels:
+              dns.operator.openshift.io/daemonset-dns: default
       ports:
         - port: 53
           protocol: UDP
