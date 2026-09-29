@@ -771,6 +771,17 @@ def test_ovn_provider_renders_plain_network_policies(
         (53, "UDP"),
         (53, "TCP"),
     }
+    # dnsCIDRs: port 53 by address as well. Load-bearing on OpenShift, where the
+    # DNS Pods live in a run-level 0 namespace and no selector can match them.
+    dns_cidr_rule = next(
+        r
+        for r in rules
+        if any(peer.get("ipBlock", {}).get("cidr") == "0.0.0.0/0" for peer in r["to"])
+    )
+    assert {(p["port"], p["protocol"]) for p in dns_cidr_rule["ports"]} == {
+        (53, "UDP"),
+        (53, "TCP"),
+    }
     # Same-sandbox egress (podSelector pinning the release instance).
     assert any(
         peer.get("podSelector", {})
@@ -824,7 +835,13 @@ def test_ovn_allow_domains_opens_broad_egress_without_identity(
 
     # allowDomains cannot be pinned: it opens the common web ports (plus any
     # allowDomainsPorts) to every IP. No serverNames / http host identity exists.
-    domain_rule = next(r for r in egress if to_all(r) and "ports" in r)
+    # Matched on port 80 rather than "has ports", because dnsCIDRs also targets
+    # 0.0.0.0/0 (on 53 only).
+    domain_rule = next(
+        r
+        for r in egress
+        if to_all(r) and any(p["port"] == 80 for p in r.get("ports", []))
+    )
     assert {(p["port"], p["protocol"]) for p in domain_rule["ports"]} == {
         (80, "TCP"),
         (443, "TCP"),

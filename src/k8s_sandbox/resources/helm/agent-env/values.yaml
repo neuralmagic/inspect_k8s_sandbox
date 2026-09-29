@@ -44,6 +44,22 @@ allowDomainsPorts: []
 #   domain: github.com
 # - port: 443
 #   protocol: UDP
+# -- CIDR ranges the agent environment may reach on port 53, in addition to the
+# DNS Pods matched by label. Only used when `networkPolicyProvider` is `ovn`.
+#
+# Defaults to everything because the correct value is cluster-specific and a
+# wrong one breaks all name resolution. OpenShift needs this: `openshift-dns` is
+# labelled `openshift.io/run-level: 0`, and pods in run-level 0/1 namespaces are
+# outside the NetworkPolicy datapath, so the label-based DNS peers never match
+# and every lookup fails. Allowing by address is the only route to them.
+#
+# Narrow it to the cluster's Service CIDR where that is known -- e.g.
+# `["172.30.0.0/16"]` on OpenShift, `["10.96.0.0/12"]` on upstream defaults --
+# which matters most alongside `allowDomains: []`, since a sandbox that is
+# otherwise isolated can still reach an arbitrary external resolver on 53. Set
+# to `[]` to rely on the label-based peers alone.
+# @default -- ["0.0.0.0/0"] (any resolver)
+dnsCIDRs: ["0.0.0.0/0"]
 # -- A list of CIDR ranges (e.g. 1.1.1.1/32) that pods within the agent environment are
 # allowed to access.
 # @default -- Empty list (no additional CIDR ranges compared to default policies)

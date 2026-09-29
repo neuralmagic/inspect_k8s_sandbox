@@ -40,10 +40,12 @@ spec:
     # Two peers because the DNS Pods are not in the same place on every cluster:
     # upstream Kubernetes runs kube-dns/node-local-dns in kube-system, while
     # OpenShift runs CoreDNS as the dns-default DaemonSet in openshift-dns. A peer
-    # matching nothing is silently inert, so listing both is safe; omitting the
-    # OpenShift one leaves the sandbox's CoreDNS sidecar unable to reach any
-    # upstream, and every lookup -- including *.svc.cluster.local -- fails with
-    # "Could not resolve host".
+    # matching nothing is silently inert, so listing both is safe.
+    #
+    # These are not sufficient on their own. Both kube-system and openshift-dns
+    # are run-level 0 namespaces, whose Pods are outside the NetworkPolicy
+    # datapath and therefore unmatchable by any selector -- see `dnsCIDRs` below,
+    # which is what actually carries DNS there.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -66,6 +68,25 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    {{- with .Values.dnsCIDRs }}
+    # Cluster DNS by address. Required on OpenShift, where the selector peers
+    # above are inert: openshift-dns carries `openshift.io/run-level: 0`, and
+    # pods in run-level 0/1 namespaces are outside the NetworkPolicy datapath,
+    # so no address set is programmed for them and a peer selecting dns-default
+    # matches nothing. The symptom is total resolution failure ("Could not
+    # resolve host") with a correct-looking policy, and it cannot be fixed with
+    # labels -- the traffic has to be allowed by IP.
+    - to:
+      {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+      {{- end }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- end }}
     # All Pods in the same agent sandbox.
     - to:
         - podSelector:
