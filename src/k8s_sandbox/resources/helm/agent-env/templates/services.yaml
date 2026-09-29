@@ -141,6 +141,9 @@ spec:
             memory: "2Gi"
             cpu: "500m"
         {{- end }}
+        {{- /* Guarded because without the CoreDNS sidecar there may be nothing to
+               mount, and a bare `volumeMounts:` key renders as null. */}}
+        {{- if or $service.volumeMounts $service.volumes (include "agentEnv.needsCoreDns" $) }}
         volumeMounts:
         {{- with $service.volumeMounts }}
           {{- toYaml . | nindent 10 }}
@@ -154,9 +157,12 @@ spec:
             name: {{ template "agentEnv.fullname" $ -}}-{{ $volumeName }}
           {{- end }}
         {{- end }}
+        {{- if include "agentEnv.needsCoreDns" $ }}
           - name: resolv-conf
             mountPath: /etc/resolv.conf
             subPath: resolv.conf
+        {{- end }}
+        {{- end }}
         {{- /* On ovn, start from containerSecurityContext (restricted-compliant) and let
                a per-service securityContext override it (service wins for any field it
                sets). On cilium, only the per-service value is used, preserving previous
@@ -171,6 +177,11 @@ spec:
         securityContext:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+      {{- /* Only run the sidecar when it has records to serve. Otherwise the Pod
+             keeps the kubelet's /etc/resolv.conf and resolves against cluster DNS
+             directly, which is both one less moving part and the only path that
+             works where the sandbox cannot reach the sidecar's upstream. */}}
+      {{- if include "agentEnv.needsCoreDns" $ }}
       - name: coredns
         image: {{ quote $.Values.corednsImage }}
         command:
@@ -205,6 +216,7 @@ spec:
             mountPath: /etc/coredns/Corefile
             subPath: Corefile
             readOnly: true
+      {{- end }}
       {{- with $service.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
@@ -213,13 +225,16 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if or $service.volumes (include "agentEnv.needsCoreDns" $) }}
       volumes:
+      {{- if include "agentEnv.needsCoreDns" $ }}
         - name: coredns-config
           configMap:
             name: {{ template "agentEnv.fullname" $ -}}-coredns-configmap
         - name: resolv-conf
           configMap:
             name: {{ template "agentEnv.fullname" $ -}}-resolv-conf
+      {{- end }}
       {{- range $key, $value := $service.volumes }}
         {{- if kindIs "string" $value }}
           {{- $parts := split ":" $value }}
@@ -230,6 +245,7 @@ spec:
         {{- else }}
         -  {{- toYaml . | nindent 10 }}
         {{- end }}
+      {{- end }}
       {{- end }}
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:

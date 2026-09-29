@@ -100,7 +100,11 @@ def test_multiple_ports(chart_dir: Path, test_resources_dir: Path) -> None:
 
 def test_volumes(chart_dir: Path, test_resources_dir: Path) -> None:
     documents = _run_helm_template(
-        chart_dir, test_resources_dir / "volumes-values.yaml"
+        chart_dir,
+        test_resources_dir / "volumes-values.yaml",
+        # Keeps the resolv-conf volume/mount in the expected lists below; it is only
+        # present when the CoreDNS sidecar is rendered.
+        set_str="services.default.dnsRecord=true",
     )
 
     # Verify PVCs.
@@ -463,7 +467,12 @@ def test_coredns_container(
     # Pinned to cilium: the ovn path deliberately drops the coredns runAsUser/runAsGroup
     # so OpenShift's restricted-v2 SCC can assign an in-range UID (see the dedicated ovn
     # coredns test). This asserts the hardened pinned-UID default preserved for cilium.
-    set_str_parts: list[str] = ["networkPolicyProvider=cilium"]
+    # dnsRecord because the sidecar is only rendered when some service needs it to
+    # serve a rewrite record; without one the Pod uses cluster DNS directly.
+    set_str_parts: list[str] = [
+        "networkPolicyProvider=cilium",
+        "services.default.dnsRecord=true",
+    ]
     if "image" in overrides:
         set_str_parts.append(f"corednsImage={overrides['image']}")
     if "command" in overrides:
@@ -507,6 +516,25 @@ def test_coredns_container(
     ]
 
 
+def test_coredns_omitted_when_no_service_needs_a_dns_record(chart_dir: Path) -> None:
+    # With no dnsRecord/additionalDnsRecords/ports anywhere, the Corefile would hold no
+    # rewrite rules and the sidecar would just forward to the cluster DNS the kubelet
+    # already configured. Skipping it keeps that resolver in /etc/resolv.conf instead of
+    # routing every lookup through an extra hop that can fail.
+    documents = _run_helm_template(chart_dir)
+
+    pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
+    assert [c["name"] for c in pod_spec["containers"]] == ["default"]
+    # No resolv.conf override, so the Pod keeps cluster DNS.
+    assert all(
+        m["mountPath"] != "/etc/resolv.conf"
+        for c in pod_spec["containers"]
+        for m in c.get("volumeMounts", [])
+    )
+    # The now-unused ConfigMaps are not created either.
+    assert _get_documents(documents, "ConfigMap") == []
+
+
 def test_coredns_security_context_can_be_overridden(chart_dir: Path) -> None:
     # An image which cannot run under the hardened default needs an escape hatch other
     # than forking the chart. Overriding one field merges rather than replaces, so the
@@ -515,7 +543,11 @@ def test_coredns_security_context_can_be_overridden(chart_dir: Path) -> None:
     # UID-merge escape hatch is asserted against the cilium path.
     documents = _run_helm_template(
         chart_dir,
-        set_str="networkPolicyProvider=cilium,corednsSecurityContext.runAsUser=1000",
+        set_str=(
+            "networkPolicyProvider=cilium,corednsSecurityContext.runAsUser=1000"
+            # The sidecar only renders when a service needs a DNS record.
+            ",services.default.dnsRecord=true"
+        ),
     )
 
     stateful_sets = _get_documents(documents, "StatefulSet")
@@ -972,7 +1004,13 @@ def test_ovn_coredns_omits_pinned_uid_for_scc(
     # OpenShift's restricted-v2 SCC rejects a pinned runAsUser outside the namespace's
     # allocated range. On ovn the coredns UID/GID must be left for the SCC to assign,
     # while the rest of the hardened context is retained.
-    documents = _run_helm_template(chart_dir, test_resources_dir / "ovn-values.yaml")
+    # dnsRecord so the sidecar is rendered at all (it is skipped when no service
+    # needs a rewrite record).
+    documents = _run_helm_template(
+        chart_dir,
+        test_resources_dir / "ovn-values.yaml",
+        set_str="services.default.dnsRecord=true",
+    )
 
     pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]
     coredns = next(c for c in pod_spec["containers"] if c["name"] == "coredns")
@@ -992,7 +1030,10 @@ def test_cilium_coredns_keeps_pinned_uid(
     chart_dir: Path, test_resources_dir: Path
 ) -> None:
     documents = _run_helm_template(
-        chart_dir, test_resources_dir / "network-isolated-values.yaml"
+        chart_dir,
+        test_resources_dir / "network-isolated-values.yaml",
+        # The sidecar only renders when a service needs a DNS record.
+        set_str="services.default.dnsRecord=true",
     )
 
     pod_spec = _get_documents(documents, "StatefulSet")[0]["spec"]["template"]["spec"]

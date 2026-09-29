@@ -72,6 +72,21 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Whether the CoreDNS sidecar is needed at all. Its only job is to serve the
+`rewrite name exact` records for services that have a DNS record; with none of
+those the Corefile is a bare forwarder to the cluster DNS the kubelet already
+configured, so the sidecar adds nothing but a hop that can fail. Pass the root
+context.
+*/}}
+{{- define "agentEnv.needsCoreDns" -}}
+{{- range $name, $service := .Values.services -}}
+{{- if include "shouldCreateDnsRecord" $service -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Render a deduped list of ports for a single service object (svc) */}}
 {{- define "agentEnv.servicePortsListFor" -}}
 {{- $seen := dict -}}
